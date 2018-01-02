@@ -39,12 +39,32 @@ type MarathonApps struct {
 			} `json:"healthCheckResults"`
 			Host         string  `json:"host"`
 			ID           string  `json:"id"`
+			// jkchen add IPAddresses struct for macvlan at 2017.11.29
+			IPAddresses []struct {
+				IPAddress string `json:"ipAddress"`
+				Protocol  string `json:"protocol"`
+			} `json:"ipAddresses"`
+
 			Ports        []int64 `json:"ports"`
 			ServicePorts []int64 `json:"servicePorts"`
 			StagedAt     string  `json:"stagedAt"`
 			StartedAt    string  `json:"startedAt"`
 			Version      string  `json:"version"`
 		} `json:"tasks"`
+		IPAddress             struct {
+			Groups []interface{} `json:"groups"`
+			Labels struct {
+			} `json:"labels"`
+			Discovery struct {
+				Ports []struct {
+					Number   int64    `json:"number"`
+					Name     string `json:"name"`
+					Protocol string `json:"protocol"`
+					Labels   struct {
+					} `json:"labels"`
+				} `json:"ports"`
+			} `json:"discovery"`
+		} `json:"ipAddress"`
 		HealthChecks []struct {
 			Path                   string `json:"path"`
 		} `json:"healthChecks"`
@@ -106,6 +126,7 @@ func eventStream() {
 				// since ~10s seems to be the rate for dummy/keepalive events on the marathon event stream
 				timer.Reset(15 * time.Second)
 				line, err := reader.ReadString('\n')
+				//fmt.Printf("=============%s", line)
 				if err != nil {
 					logger.WithFields(logrus.Fields{
 						"error":    err.Error(),
@@ -248,13 +269,14 @@ func syncApps(jsonapps *MarathonApps) bool {
 		}
 		for _, task := range app.Tasks {
 			// lets skip tasks that does not expose any ports.
-			if len(task.Ports) == 0 {
-				continue
-			}
+			// jkchen modify at 2017-12-11, for ignore no ports and host
+			//if len(task.Ports) == 0 {
+			//	continue
+			//}
 			// also skip of there is no host set.
-			if task.Host == "" {
-				continue
-			}
+			//if task.Host == "" {
+			//	continue
+			//}
 			if len(app.HealthChecks) > 0 {
 				if len(task.HealthCheckResults) == 0 {
 					// this means tasks is being deployed but not yet monitored as alive. Assume down.
@@ -272,9 +294,31 @@ func syncApps(jsonapps *MarathonApps) bool {
 					continue
 				}
 			}
+
 			var newtask = Task{}
-			newtask.Host = task.Host
-			newtask.Ports = task.Ports
+
+			logger.Warn("==== prepare get IPaddress info, id = ", app.ID)
+			// jkchen add IPAddress info for macvlan
+			if task.IPAddresses != nil {
+				newtask.Host = task.IPAddresses[0].IPAddress
+				logger.Warn("Host: ", newtask.Host)
+
+			} else {
+				newtask.Host = task.Host
+				//newtask.Ports = task.Ports
+			}
+			//logger.Warn("Host: ",task.IPAddresses[0].IPAddress)
+
+			if app.IPAddress.Discovery.Ports != nil {
+				newtask.Ports = []int64{app.IPAddress.Discovery.Ports[0].Number}
+				logger.Warn("port: ", newtask.Ports[0])
+			} else {
+				logger.Warn("thomas test: IPAddress.Discovery.Ports is empty")
+			}
+
+
+			//logger.Warn("thomas test:    ", newtask)
+			//newtask.Ports = task.Ports
 			newtask.ServicePorts = task.ServicePorts
 			newtask.StagedAt = task.StagedAt
 			newtask.StartedAt = task.StartedAt
